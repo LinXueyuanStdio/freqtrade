@@ -5,11 +5,15 @@ from logging.handlers import RotatingFileHandler, SysLogHandler
 from freqtrade.constants import Config
 from freqtrade.exceptions import OperationalException
 from freqtrade.loggers.buffering_handler import FTBufferingHandler
-from freqtrade.loggers.std_err_stream_handler import FTStdErrStreamHandler
+from freqtrade.loggers.std_err_stream_handler import FTStdErrStreamHandler, ColorFormatter
 
 
 logger = logging.getLogger(__name__)
 LOGFORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+console_handler = FTStdErrStreamHandler()
+console_handler.setLevel(logging.DEBUG)
+console_handler.setFormatter(ColorFormatter())
 
 # Initialize bufferhandler - will be used for /log endpoints
 bufferHandler = FTBufferingHandler(1000)
@@ -56,7 +60,7 @@ def setup_logging_pre() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format=LOGFORMAT,
-        handlers=[FTStdErrStreamHandler(), bufferHandler]
+        handlers=[console_handler, bufferHandler]
     )
 
 
