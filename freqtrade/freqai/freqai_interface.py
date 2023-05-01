@@ -1,4 +1,5 @@
 import logging
+import traceback
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -242,8 +243,8 @@ class IFreqaiModel(ABC):
                         new_trained_timerange, pair, strategy, dk, data_load_timerange
                     )
                 except Exception as msg:
-                    logger.warning(f"Training {pair} raised exception {msg.__class__.__name__}. "
-                                   f"Message: {msg}, skipping.")
+                    logger.warning(f"Training {pair} raised exception {msg.__class__.__name__}: {msg}. "
+                                   f"Message: {traceback.format_exc()}, skipping.")
 
                 self.train_timer('stop', pair)
 
@@ -345,8 +346,8 @@ class IFreqaiModel(ABC):
                         self.model = self.train(dataframe_train, pair, dk)
                     except Exception as msg:
                         logger.warning(
-                            f"Training {pair} raised exception {msg.__class__.__name__}. "
-                            f"Message: {msg}, skipping.", exc_info=True)
+                            f"Training {pair} raised exception {msg.__class__.__name__}: {msg} "
+                            f"Message: {traceback.format_exc()}, skipping.", exc_info=True)
                         self.model = None
 
                     self.dd.pair_dict[pair]["trained_timestamp"] = int(

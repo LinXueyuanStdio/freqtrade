@@ -1,4 +1,5 @@
 import logging
+import traceback
 from copy import deepcopy
 from functools import wraps
 from typing import Any, Callable, TypeVar, cast
@@ -28,8 +29,8 @@ def strategy_safe_wrapper(f: F, message: str = "", default_retval=None, supress_
         except ValueError as error:
             logger.warning(
                 f"{message}"
-                f"Strategy caused the following exception: {error}"
-                f"{f}"
+                f"{f} Strategy caused the following exception: {error}\n"
+                f"{traceback.format_exc()}"
             )
             if default_retval is None and not supress_error:
                 raise StrategyError(str(error)) from error
