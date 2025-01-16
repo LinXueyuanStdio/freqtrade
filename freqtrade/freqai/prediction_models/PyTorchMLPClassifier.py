@@ -1,11 +1,13 @@
-from typing import Any, Dict
+from typing import Any
 
 import torch
 
 from freqtrade.freqai.base_models.BasePyTorchClassifier import BasePyTorchClassifier
 from freqtrade.freqai.data_kitchen import FreqaiDataKitchen
-from freqtrade.freqai.torch.PyTorchDataConvertor import (DefaultPyTorchDataConvertor,
-                                                         PyTorchDataConvertor)
+from freqtrade.freqai.torch.PyTorchDataConvertor import (
+    DefaultPyTorchDataConvertor,
+    PyTorchDataConvertor,
+)
 from freqtrade.freqai.torch.PyTorchMLPModel import PyTorchMLPModel
 from freqtrade.freqai.torch.PyTorchModelTrainer import PyTorchModelTrainer
 
@@ -26,9 +28,9 @@ class PyTorchMLPClassifier(BasePyTorchClassifier):
             "model_training_parameters" : {
                 "learning_rate": 3e-4,
                 "trainer_kwargs": {
-                    "max_iters": 5000,
+                    "n_steps": 5000,
                     "batch_size": 64,
-                    "max_n_eval_batches": null,
+                    "n_epochs": null,
                 },
                 "model_kwargs": {
                     "hidden_dim": 512,
@@ -43,18 +45,17 @@ class PyTorchMLPClassifier(BasePyTorchClassifier):
     @property
     def data_convertor(self) -> PyTorchDataConvertor:
         return DefaultPyTorchDataConvertor(
-            target_tensor_type=torch.long,
-            squeeze_target_tensor=True
+            target_tensor_type=torch.long, squeeze_target_tensor=True
         )
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         config = self.freqai_info.get("model_training_parameters", {})
-        self.learning_rate: float = config.get("learning_rate",  3e-4)
-        self.model_kwargs: Dict[str, Any] = config.get("model_kwargs",  {})
-        self.trainer_kwargs: Dict[str, Any] = config.get("trainer_kwargs",  {})
+        self.learning_rate: float = config.get("learning_rate", 3e-4)
+        self.model_kwargs: dict[str, Any] = config.get("model_kwargs", {})
+        self.trainer_kwargs: dict[str, Any] = config.get("trainer_kwargs", {})
 
-    def fit(self, data_dictionary: Dict, dk: FreqaiDataKitchen, **kwargs) -> Any:
+    def fit(self, data_dictionary: dict, dk: FreqaiDataKitchen, **kwargs) -> Any:
         """
         User sets up the training and test data to fit their desired model here
         :param data_dictionary: the dictionary holding all data for train, test,
@@ -67,23 +68,23 @@ class PyTorchMLPClassifier(BasePyTorchClassifier):
         self.convert_label_column_to_int(data_dictionary, dk, class_names)
         n_features = data_dictionary["train_features"].shape[-1]
         model = PyTorchMLPModel(
-            input_dim=n_features,
-            output_dim=len(class_names),
-            **self.model_kwargs
+            input_dim=n_features, output_dim=len(class_names), **self.model_kwargs
         )
         model.to(self.device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=self.learning_rate)
         criterion = torch.nn.CrossEntropyLoss()
-        init_model = self.get_init_model(dk.pair)
-        trainer = PyTorchModelTrainer(
-            model=model,
-            optimizer=optimizer,
-            criterion=criterion,
-            model_meta_data={"class_names": class_names},
-            device=self.device,
-            init_model=init_model,
-            data_convertor=self.data_convertor,
-            **self.trainer_kwargs,
-        )
+        # check if continual_learning is activated, and retrieve the model to continue training
+        trainer = self.get_init_model(dk.pair)
+        if trainer is None:
+            trainer = PyTorchModelTrainer(
+                model=model,
+                optimizer=optimizer,
+                criterion=criterion,
+                model_meta_data={"class_names": class_names},
+                device=self.device,
+                data_convertor=self.data_convertor,
+                tb_logger=self.tb_logger,
+                **self.trainer_kwargs,
+            )
         trainer.fit(data_dictionary, self.splits)
         return trainer

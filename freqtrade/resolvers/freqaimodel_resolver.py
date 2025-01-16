@@ -3,6 +3,7 @@
 """
 This module load a custom model for freqai
 """
+
 import logging
 from pathlib import Path
 
@@ -34,7 +35,7 @@ class FreqaiModelResolver(IResolver):
         Load the custom class from config parameter
         :param config: configuration dictionary
         """
-        disallowed_models = ["BaseRegressionModel", "BaseTensorFlowModel"]
+        disallowed_models = ["BaseRegressionModel"]
 
         freqaimodel_name = config.get("freqaimodel")
         if not freqaimodel_name:

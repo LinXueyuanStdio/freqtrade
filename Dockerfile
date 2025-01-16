@@ -1,4 +1,4 @@
-FROM python:3.10.11-slim-bullseye as base
+FROM python:3.12.7-slim-bookworm as base
 
 # Setup env
 ENV LANG C.UTF-8
@@ -11,7 +11,7 @@ ENV FT_APP_ENV="docker"
 # Prepare environment
 RUN mkdir /freqtrade \
   && apt-get update \
-  && apt-get -y install sudo libatlas3-base curl sqlite3 libhdf5-serial-dev libgomp1 \
+  && apt-get -y install sudo libatlas3-base curl sqlite3 libgomp1 \
   && apt-get clean \
   && useradd -u 1000 -G sudo -U -m -s /bin/bash ftuser \
   && chown ftuser:ftuser /freqtrade \
@@ -25,7 +25,7 @@ FROM base as python-deps
 RUN  apt-get update \
   && apt-get -y install build-essential libssl-dev git libffi-dev libgfortran5 pkg-config cmake gcc \
   && apt-get clean \
-  && pip install --upgrade pip==23.0.1 wheel==0.38.4
+  && pip install --upgrade pip wheel
 
 # Install TA-lib
 COPY build_helpers/* /tmp/
@@ -35,7 +35,7 @@ ENV LD_LIBRARY_PATH /usr/local/lib
 # Install dependencies
 COPY --chown=ftuser:ftuser requirements.txt requirements-hyperopt.txt /freqtrade/
 USER ftuser
-RUN  pip install --user --no-cache-dir numpy \
+RUN  pip install --user --no-cache-dir "numpy<2.0" \
   && pip install --user --no-cache-dir -r requirements-hyperopt.txt
 
 # Copy dependencies to runtime-image

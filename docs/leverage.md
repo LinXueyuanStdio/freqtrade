@@ -17,7 +17,7 @@ If you already have an existing strategy, please read the [strategy migration gu
 
 ## Shorting
 
-Shorting is not possible when trading with [`trading_mode`](#understand-tradingmode) set to `spot`. To short trade, `trading_mode` must be set to `margin`(currently unavailable) or [`futures`](#futures), with [`margin_mode`](#margin-mode) set to `cross`(currently unavailable) or [`isolated`](#isolated-margin-mode)
+Shorting is not possible when trading with [`trading_mode`](#leverage-trading-modes) set to `spot`. To short trade, `trading_mode` must be set to `margin`(currently unavailable) or [`futures`](#futures), with [`margin_mode`](#margin-mode) set to `cross`(currently unavailable) or [`isolated`](#isolated-margin-mode)
 
 For a strategy to short, the strategy class must set the class variable `can_short = True`
 
@@ -64,7 +64,7 @@ You will also have to pick a "margin mode" (explanation below) - with freqtrade 
 
 ##### Pair namings
 
-Freqtrade follows the [ccxt naming conventions for futures](https://docs.ccxt.com/en/latest/manual.html?#perpetual-swap-perpetual-future).
+Freqtrade follows the [ccxt naming conventions for futures](https://docs.ccxt.com/#/README?id=perpetual-swap-perpetual-future).
 A futures pair will therefore have the naming of `base/quote:settle` (e.g. `ETH/USDT:USDT`).
 
 ### Margin mode
@@ -82,7 +82,7 @@ Each market(trading pair), keeps collateral in a separate account
 "margin_mode": "isolated"
 ```
 
-#### Cross margin mode (currently unavailable)
+#### Cross margin mode
 
 One account is used to share collateral between markets (trading pairs). Margin is taken from total account balance to avoid liquidation when needed.
 

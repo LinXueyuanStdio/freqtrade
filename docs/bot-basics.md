@@ -7,7 +7,7 @@ This page provides you some basic concepts on how Freqtrade works and operates.
 * **Strategy**: Your trading strategy, telling the bot what to do.
 * **Trade**: Open position.
 * **Open Order**: Order which is currently placed on the exchange, and is not yet complete.
-* **Pair**: Tradable pair, usually in the format of Base/Quote (e.g. XRP/USDT).
+* **Pair**: Tradable pair, usually in the format of Base/Quote (e.g. `XRP/USDT` for spot, `XRP/USDT:USDT` for futures).
 * **Timeframe**: Candle length to use (e.g. `"5m"`, `"1h"`, ...).
 * **Indicators**: Technical indicators (SMA, EMA, RSI, ...).
 * **Limit order**: Limit orders which execute at the defined limit price or better.
@@ -19,6 +19,19 @@ This page provides you some basic concepts on how Freqtrade works and operates.
 ## Fee handling
 
 All profit calculations of Freqtrade include fees. For Backtesting / Hyperopt / Dry-run modes, the exchange default fee is used (lowest tier on the exchange). For live operations, fees are used as applied by the exchange (this includes BNB rebates etc.).
+
+## Pair naming
+
+Freqtrade follows the [ccxt naming convention](https://docs.ccxt.com/#/README?id=consistency-of-base-and-quote-currencies) for currencies.
+Using the wrong naming convention in the wrong market will usually result in the bot not recognizing the pair, usually resulting in errors like "this pair is not available".
+
+### Spot pair naming
+
+For spot pairs, naming will be `base/quote` (e.g. `ETH/USDT`).
+
+### Futures pair naming
+
+For futures pairs, naming will be `base/quote:settle` (e.g. `ETH/USDT:USDT`).
 
 ## Bot execution logic
 
@@ -36,10 +49,12 @@ By default, the bot loop runs every few seconds (`internals.process_throttle_sec
   * Call `populate_indicators()`
   * Call `populate_entry_trend()`
   * Call `populate_exit_trend()`
-* Check timeouts for open orders.
-  * Calls `check_entry_timeout()` strategy callback for open entry orders.
-  * Calls `check_exit_timeout()` strategy callback for open exit orders.
-  * Calls `adjust_entry_price()` strategy callback for open entry orders.
+* Update trades open order state from exchange.
+  * Call `order_filled()` strategy callback for filled orders.
+  * Check timeouts for open orders.
+    * Calls `check_entry_timeout()` strategy callback for open entry orders.
+    * Calls `check_exit_timeout()` strategy callback for open exit orders.
+    * Calls `adjust_entry_price()` strategy callback for open entry orders.
 * Verifies existing positions and eventually places exit orders.
   * Considers stoploss, ROI and exit-signal, `custom_exit()` and `custom_stoploss()`.
   * Determine exit-price based on `exit_pricing` configuration setting or by using the `custom_exit_price()` callback.
@@ -72,8 +87,10 @@ This loop will be repeated again and again until the bot is stopped.
   * In Margin and Futures mode, `leverage()` strategy callback is called to determine the desired leverage.
   * Determine stake size by calling the `custom_stake_amount()` callback.
   * Check position adjustments for open trades if enabled and call `adjust_trade_position()` to determine if an additional order is requested.
+  * Call `order_filled()` strategy callback for filled entry orders.
   * Call `custom_stoploss()` and `custom_exit()` to find custom exit points.
   * For exits based on exit-signal, custom-exit and partial exits: Call `custom_exit_price()` to determine exit price (Prices are moved to be within the closing candle).
+  * Call `order_filled()` strategy callback for filled exit orders.
 * Generate backtest report output
 
 !!! Note

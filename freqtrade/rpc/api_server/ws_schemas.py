@@ -1,35 +1,32 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, TypedDict
 
 from pandas import DataFrame
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from freqtrade.constants import PairWithTimeframe
-from freqtrade.enums.rpcmessagetype import RPCMessageType, RPCRequestType
+from freqtrade.enums import RPCMessageType, RPCRequestType
 
 
 class BaseArbitraryModel(BaseModel):
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class WSRequestSchema(BaseArbitraryModel):
     type: RPCRequestType
-    data: Optional[Any] = None
+    data: Any | None = None
 
 
 class WSMessageSchemaType(TypedDict):
     # Type for typing to avoid doing pydantic typechecks.
     type: RPCMessageType
-    data: Optional[Dict[str, Any]]
+    data: dict[str, Any] | None
 
 
 class WSMessageSchema(BaseArbitraryModel):
     type: RPCMessageType
-    data: Optional[Any] = None
-
-    class Config:
-        extra = 'allow'
+    data: Any | None = None
+    model_config = ConfigDict(extra="allow")
 
 
 # ------------------------------ REQUEST SCHEMAS ----------------------------
@@ -37,7 +34,7 @@ class WSMessageSchema(BaseArbitraryModel):
 
 class WSSubscribeRequest(WSRequestSchema):
     type: RPCRequestType = RPCRequestType.SUBSCRIBE
-    data: List[RPCMessageType]
+    data: list[RPCMessageType]
 
 
 class WSWhitelistRequest(WSRequestSchema):
@@ -47,14 +44,15 @@ class WSWhitelistRequest(WSRequestSchema):
 
 class WSAnalyzedDFRequest(WSRequestSchema):
     type: RPCRequestType = RPCRequestType.ANALYZED_DF
-    data: Dict[str, Any] = {"limit": 1500, "pair": None}
+    data: dict[str, Any] = {"limit": 1500, "pair": None}
 
 
 # ------------------------------ MESSAGE SCHEMAS ----------------------------
 
+
 class WSWhitelistMessage(WSMessageSchema):
     type: RPCMessageType = RPCMessageType.WHITELIST
-    data: List[str]
+    data: list[str]
 
 
 class WSAnalyzedDFMessage(WSMessageSchema):
@@ -65,5 +63,11 @@ class WSAnalyzedDFMessage(WSMessageSchema):
 
     type: RPCMessageType = RPCMessageType.ANALYZED_DF
     data: AnalyzedDFData
+
+
+class WSErrorMessage(WSMessageSchema):
+    type: RPCMessageType = RPCMessageType.EXCEPTION
+    data: str
+
 
 # --------------------------------------------------------------------------

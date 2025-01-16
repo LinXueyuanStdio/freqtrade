@@ -18,7 +18,7 @@ Features include:
 * **Extensibility** - The generalized and robust architecture allows for incorporating any [machine learning library/method](freqai-configuration.md#using-different-prediction-models) available in Python. Eight examples are currently available, including classifiers, regressors, and a convolutional neural network
 * **Smart outlier removal** - Remove outliers from training and prediction data sets using a variety of [outlier detection techniques](freqai-feature-engineering.md#outlier-detection)
 * **Crash resilience** - Store trained models to disk to make reloading from a crash fast and easy, and [purge obsolete files](freqai-running.md#purging-old-model-data) for sustained dry/live runs
-* **Automatic data normalization** - [Normalize the data](freqai-feature-engineering.md#feature-normalization) in a smart and statistically safe way
+* **Automatic data normalization** - [Normalize the data](freqai-feature-engineering.md#building-the-data-pipeline) in a smart and statistically safe way
 * **Automatic data download** - Compute timeranges for data downloads and update historic data (in live deployments)
 * **Cleaning of incoming data** - Handle NaNs safely before training and model inferencing
 * **Dimensionality reduction** - Reduce the size of the training data via [Principal Component Analysis](freqai-feature-engineering.md#data-dimensionality-reduction-with-principal-component-analysis)
@@ -32,7 +32,10 @@ The easiest way to quickly test FreqAI is to run it in dry mode with the followi
 freqtrade trade --config config_examples/config_freqai.example.json --strategy FreqaiExampleStrategy --freqaimodel LightGBMRegressor --strategy-path freqtrade/templates
 ```
 
-You will see the boot-up process of automatic data downloading, followed by simultaneous training and trading.
+You will see the boot-up process of automatic data downloading, followed by simultaneous training and trading. 
+
+!!! danger "Not for production"
+    The example strategy provided with the Freqtrade source code is designed for showcasing/testing a wide variety of FreqAI features. It is also designed to run on small computers so that it can be used as a benchmark between developers and users. It is *not* designed to be run in production.
 
 An example strategy, prediction model, and config to use as a starting points can be found in
 `freqtrade/templates/FreqaiExampleStrategy.py`, `freqtrade/freqai/prediction_models/LightGBMRegressor.py`, and
@@ -69,19 +72,18 @@ pip install -r requirements-freqai.txt
 ```
 
 !!! Note
-    Catboost will not be installed on arm devices (raspberry, Mac M1, ARM based VPS, ...), since it does not provide wheels for this platform.
-
-!!! Note "python 3.11"
-    Some dependencies (Catboost, Torch) currently don't support python 3.11. Freqtrade therefore only supports python 3.10 for these models/dependencies.
-    Tests involving these dependencies are skipped on 3.11.
+    Catboost will not be installed on low-powered arm devices (raspberry), since it does not provide wheels for this platform.
 
 ### Usage with docker
 
-If you are using docker, a dedicated tag with FreqAI dependencies is available as `:freqai`. As such - you can replace the image line in your docker compose file with `image: freqtradeorg/freqtrade:develop_freqai`. This image contains the regular FreqAI dependencies. Similar to native installs, Catboost will not be available on ARM based devices.
+If you are using docker, a dedicated tag with FreqAI dependencies is available as `:freqai`. As such - you can replace the image line in your docker compose file with `image: freqtradeorg/freqtrade:stable_freqai`. This image contains the regular FreqAI dependencies. Similar to native installs, Catboost will not be available on ARM based devices. If you would like to use PyTorch or Reinforcement learning, you should use the torch or RL tags, `image: freqtradeorg/freqtrade:stable_freqaitorch`, `image: freqtradeorg/freqtrade:stable_freqairl`.
+
+!!! note "docker-compose-freqai.yml"
+   We do provide an explicit docker-compose file for this in `docker/docker-compose-freqai.yml` - which can be used via `docker compose -f docker/docker-compose-freqai.yml run ...` - or can be copied to replace the original docker file. This docker-compose file also contains a (disabled) section to enable GPU resources within docker containers. This obviously assumes the system has GPU resources available.
 
 ### FreqAI position in open-source machine learning landscape
 
-Forecasting chaotic time-series based systems, such as equity/cryptocurrency markets, requires a broad set of tools geared toward testing a wide range of hypotheses. Fortunately, a recent maturation of robust machine learning libraries (e.g. `scikit-learn`) has opened up a wide range of research possibilities. Scientists from a diverse range of fields can now easily prototype their studies on an abundance of established machine learning algorithms. Similarly, these user-friendly libraries enable "citzen scientists" to use their basic Python skills for data exploration. However, leveraging these machine learning libraries on historical and live chaotic data sources can be logistically difficult and expensive. Additionally, robust data collection, storage, and handling presents a disparate challenge. [`FreqAI`](#freqai) aims to provide a generalized and extensible open-sourced framework geared toward live deployments of adaptive modeling for market forecasting. The `FreqAI` framework is effectively a sandbox for the rich world of open-source machine learning libraries. Inside the `FreqAI` sandbox, users find they can combine a wide variety of third-party libraries to test creative hypotheses on a free live 24/7 chaotic data source - cryptocurrency exchange data. 
+Forecasting chaotic time-series based systems, such as equity/cryptocurrency markets, requires a broad set of tools geared toward testing a wide range of hypotheses. Fortunately, a recent maturation of robust machine learning libraries (e.g. `scikit-learn`) has opened up a wide range of research possibilities. Scientists from a diverse range of fields can now easily prototype their studies on an abundance of established machine learning algorithms. Similarly, these user-friendly libraries enable "citizen scientists" to use their basic Python skills for data exploration. However, leveraging these machine learning libraries on historical and live chaotic data sources can be logistically difficult and expensive. Additionally, robust data collection, storage, and handling presents a disparate challenge. [`FreqAI`](#freqai) aims to provide a generalized and extensible open-sourced framework geared toward live deployments of adaptive modeling for market forecasting. The `FreqAI` framework is effectively a sandbox for the rich world of open-source machine learning libraries. Inside the `FreqAI` sandbox, users find they can combine a wide variety of third-party libraries to test creative hypotheses on a free live 24/7 chaotic data source - cryptocurrency exchange data. 
 
 ### Citing FreqAI
 
@@ -104,6 +106,18 @@ FreqAI cannot be combined with dynamic `VolumePairlists` (or any pairlist filter
 This is for performance reasons - FreqAI relies on making quick predictions/retrains. To do this effectively,
 it needs to download all the training data at the beginning of a dry/live instance. FreqAI stores and appends
 new candles automatically for future retrains. This means that if new pairs arrive later in the dry run due to a volume pairlist, it will not have the data ready. However, FreqAI does work with the `ShufflePairlist` or a `VolumePairlist` which keeps the total pairlist constant (but reorders the pairs according to volume).
+
+## Additional learning materials
+
+Here we compile some external materials that provide deeper looks into various components of FreqAI:
+
+- [Real-time head-to-head: Adaptive modeling of financial market data using XGBoost and CatBoost](https://emergentmethods.medium.com/real-time-head-to-head-adaptive-modeling-of-financial-market-data-using-xgboost-and-catboost-995a115a7495)
+- [FreqAI - from price to prediction](https://emergentmethods.medium.com/freqai-from-price-to-prediction-6fadac18b665)
+
+
+## Support
+
+You can find support for FreqAI in a variety of places, including the [Freqtrade discord](https://discord.gg/Jd8JYeWHc4), the dedicated [FreqAI discord](https://discord.gg/7AMWACmbjT), and in [github issues](https://github.com/freqtrade/freqtrade/issues).
 
 ## Credits
 

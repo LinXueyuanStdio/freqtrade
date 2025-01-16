@@ -1,7 +1,6 @@
 import logging
-import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 import torch
@@ -12,21 +11,24 @@ from torch.utils.data import DataLoader, TensorDataset
 from freqtrade.freqai.torch.PyTorchDataConvertor import PyTorchDataConvertor
 from freqtrade.freqai.torch.PyTorchTrainerInterface import PyTorchTrainerInterface
 
+from .datasets import WindowDataset
+
 
 logger = logging.getLogger(__name__)
 
 
 class PyTorchModelTrainer(PyTorchTrainerInterface):
     def __init__(
-            self,
-            model: nn.Module,
-            optimizer: Optimizer,
-            criterion: nn.Module,
-            device: str,
-            init_model: Dict,
-            data_convertor: PyTorchDataConvertor,
-            model_meta_data: Dict[str, Any] = {},
-            **kwargs
+        self,
+        model: nn.Module,
+        optimizer: Optimizer,
+        criterion: nn.Module,
+        device: str,
+        data_convertor: PyTorchDataConvertor,
+        model_meta_data: dict[str, Any] = {},
+        window_size: int = 1,
+        tb_logger: Any = None,
+        **kwargs,
     ):
         """
         :param model: The PyTorch model to be trained.
@@ -36,26 +38,30 @@ class PyTorchModelTrainer(PyTorchTrainerInterface):
         :param init_model: A dictionary containing the initial model/optimizer
             state_dict and model_meta_data saved by self.save() method.
         :param model_meta_data: Additional metadata about the model (optional).
-        :param data_convertor: convertor from pd.DataFrame to torch.tensor.
-        :param max_iters: The number of training iterations to run.
-            iteration here refers to the number of times we call
-            self.optimizer.step(). used to calculate n_epochs.
+        :param data_convertor: converter from pd.DataFrame to torch.tensor.
+        :param n_steps: used to calculate n_epochs. The number of training iterations to run.
+            iteration here refers to the number of times optimizer.step() is called.
+            ignored if n_epochs is set.
+        :param n_epochs: The maximum number batches to use for evaluation.
         :param batch_size: The size of the batches to use during training.
-        :param max_n_eval_batches: The maximum number batches to use for evaluation.
         """
         self.model = model
         self.optimizer = optimizer
         self.criterion = criterion
         self.model_meta_data = model_meta_data
         self.device = device
-        self.max_iters: int = kwargs.get("max_iters", 100)
-        self.batch_size: int = kwargs.get("batch_size", 64)
-        self.max_n_eval_batches: Optional[int] = kwargs.get("max_n_eval_batches", None)
-        self.data_convertor = data_convertor
-        if init_model:
-            self.load_from_checkpoint(init_model)
+        self.n_epochs: int | None = kwargs.get("n_epochs", 10)
+        self.n_steps: int | None = kwargs.get("n_steps", None)
+        if self.n_steps is None and not self.n_epochs:
+            raise Exception("Either `n_steps` or `n_epochs` should be set.")
 
-    def fit(self, data_dictionary: Dict[str, pd.DataFrame], splits: List[str]):
+        self.batch_size: int = kwargs.get("batch_size", 64)
+        self.data_convertor = data_convertor
+        self.window_size: int = window_size
+        self.tb_logger = tb_logger
+        self.test_batch_counter = 0
+
+    def fit(self, data_dictionary: dict[str, pd.DataFrame], splits: list[str]):
         """
         :param data_dictionary: the dictionary constructed by DataHandler to hold
         all the training and test data/labels.
@@ -69,75 +75,52 @@ class PyTorchModelTrainer(PyTorchTrainerInterface):
            backpropagation.
          - Updates the model's parameters using an optimizer.
         """
+        self.model.train()
+
         data_loaders_dictionary = self.create_data_loaders_dictionary(data_dictionary, splits)
-        epochs = self.calc_n_epochs(
-            n_obs=len(data_dictionary["train_features"]),
-            batch_size=self.batch_size,
-            n_iters=self.max_iters
-        )
-        for epoch in range(1, epochs + 1):
-            # training
-            losses = []
-            for i, batch_data in enumerate(data_loaders_dictionary["train"]):
-
-                for tensor in batch_data:
-                    tensor.to(self.device)
-
-                xb = batch_data[:-1]
-                yb = batch_data[-1]
+        n_obs = len(data_dictionary["train_features"])
+        n_epochs = self.n_epochs or self.calc_n_epochs(n_obs=n_obs)
+        batch_counter = 0
+        for _ in range(n_epochs):
+            for _, batch_data in enumerate(data_loaders_dictionary["train"]):
+                xb, yb = batch_data
+                xb = xb.to(self.device)
+                yb = yb.to(self.device)
                 yb_pred = self.model(xb)
                 loss = self.criterion(yb_pred, yb)
 
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 self.optimizer.step()
-                losses.append(loss.item())
-            train_loss = sum(losses) / len(losses)
-            log_message = f"epoch {epoch}/{epochs}: train loss {train_loss:.4f}"
+                self.tb_logger.log_scalar("train_loss", loss.item(), batch_counter)
+                batch_counter += 1
 
             # evaluation
             if "test" in splits:
-                test_loss = self.estimate_loss(
-                    data_loaders_dictionary,
-                    self.max_n_eval_batches,
-                    "test"
-                )
-                log_message += f" ; test loss {test_loss:.4f}"
-
-            logger.info(log_message)
+                self.estimate_loss(data_loaders_dictionary, "test")
 
     @torch.no_grad()
     def estimate_loss(
-            self,
-            data_loader_dictionary: Dict[str, DataLoader],
-            max_n_eval_batches: Optional[int],
-            split: str,
-    ) -> float:
+        self,
+        data_loader_dictionary: dict[str, DataLoader],
+        split: str,
+    ) -> None:
         self.model.eval()
-        n_batches = 0
-        losses = []
-        for i, batch_data in enumerate(data_loader_dictionary[split]):
-            if max_n_eval_batches and i > max_n_eval_batches:
-                n_batches += 1
-                break
+        for _, batch_data in enumerate(data_loader_dictionary[split]):
+            xb, yb = batch_data
+            xb = xb.to(self.device)
+            yb = yb.to(self.device)
 
-            for tensor in batch_data:
-                tensor.to(self.device)
-
-            xb = batch_data[:-1]
-            yb = batch_data[-1]
             yb_pred = self.model(xb)
             loss = self.criterion(yb_pred, yb)
-            losses.append(loss.item())
+            self.tb_logger.log_scalar(f"{split}_loss", loss.item(), self.test_batch_counter)
+            self.test_batch_counter += 1
 
         self.model.train()
-        return sum(losses) / len(losses)
 
     def create_data_loaders_dictionary(
-            self,
-            data_dictionary: Dict[str, pd.DataFrame],
-            splits: List[str]
-    ) -> Dict[str, DataLoader]:
+        self, data_dictionary: dict[str, pd.DataFrame], splits: list[str]
+    ) -> dict[str, DataLoader]:
         """
         Converts the input data to PyTorch tensors using a data loader.
         """
@@ -145,7 +128,7 @@ class PyTorchModelTrainer(PyTorchTrainerInterface):
         for split in splits:
             x = self.data_convertor.convert_x(data_dictionary[f"{split}_features"], self.device)
             y = self.data_convertor.convert_y(data_dictionary[f"{split}_labels"], self.device)
-            dataset = TensorDataset(*x, *y)
+            dataset = TensorDataset(x, y)
             data_loader = DataLoader(
                 dataset,
                 batch_size=self.batch_size,
@@ -157,45 +140,48 @@ class PyTorchModelTrainer(PyTorchTrainerInterface):
 
         return data_loader_dictionary
 
-    @staticmethod
-    def calc_n_epochs(n_obs: int, batch_size: int, n_iters: int) -> int:
+    def calc_n_epochs(self, n_obs: int) -> int:
         """
         Calculates the number of epochs required to reach the maximum number
         of iterations specified in the model training parameters.
 
-        the motivation here is that `max_iters` is easier to optimize and keep stable,
+        the motivation here is that `n_steps` is easier to optimize and keep stable,
         across different n_obs - the number of data points.
         """
+        if not isinstance(self.n_steps, int):
+            raise ValueError("Either `n_steps` or `n_epochs` should be set.")
+        n_batches = n_obs // self.batch_size
+        n_epochs = max(self.n_steps // n_batches, 1)
+        if n_epochs <= 10:
+            logger.warning(
+                f"Setting low n_epochs: {n_epochs}. "
+                f"Please consider increasing `n_steps` hyper-parameter."
+            )
 
-        n_batches = math.ceil(n_obs // batch_size)
-        epochs = math.ceil(n_iters // n_batches)
-        if epochs <= 10:
-            logger.warning("User set `max_iters` in such a way that the trainer will only perform "
-                           f" {epochs} epochs. Please consider increasing this value accordingly")
-            if epochs <= 1:
-                logger.warning("Epochs set to 1. Please review your `max_iters` value")
-                epochs = 1
-        return epochs
+        return n_epochs
 
     def save(self, path: Path):
         """
         - Saving any nn.Module state_dict
         - Saving model_meta_data, this dict should contain any additional data that the
-          user needs to store. e.g class_names for classification models.
+          user needs to store. e.g. class_names for classification models.
         """
 
-        torch.save({
-            "model_state_dict": self.model.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
-            "model_meta_data": self.model_meta_data,
-            "pytrainer": self
-        }, path)
+        torch.save(
+            {
+                "model_state_dict": self.model.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "model_meta_data": self.model_meta_data,
+                "pytrainer": self,
+            },
+            path,
+        )
 
     def load(self, path: Path):
         checkpoint = torch.load(path)
         return self.load_from_checkpoint(checkpoint)
 
-    def load_from_checkpoint(self, checkpoint: Dict):
+    def load_from_checkpoint(self, checkpoint: dict):
         """
         when using continual_learning, DataDrawer will load the dictionary
         (containing state dicts and model_meta_data) by calling torch.load(path).
@@ -206,3 +192,31 @@ class PyTorchModelTrainer(PyTorchTrainerInterface):
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.model_meta_data = checkpoint["model_meta_data"]
         return self
+
+
+class PyTorchTransformerTrainer(PyTorchModelTrainer):
+    """
+    Creating a trainer for the Transformer model.
+    """
+
+    def create_data_loaders_dictionary(
+        self, data_dictionary: dict[str, pd.DataFrame], splits: list[str]
+    ) -> dict[str, DataLoader]:
+        """
+        Converts the input data to PyTorch tensors using a data loader.
+        """
+        data_loader_dictionary = {}
+        for split in splits:
+            x = self.data_convertor.convert_x(data_dictionary[f"{split}_features"], self.device)
+            y = self.data_convertor.convert_y(data_dictionary[f"{split}_labels"], self.device)
+            dataset = WindowDataset(x, y, self.window_size)
+            data_loader = DataLoader(
+                dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                drop_last=True,
+                num_workers=0,
+            )
+            data_loader_dictionary[split] = data_loader
+
+        return data_loader_dictionary

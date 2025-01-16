@@ -1,11 +1,9 @@
-from joblib import Parallel
 from sklearn.multioutput import MultiOutputRegressor, _fit_estimator
-from sklearn.utils.fixes import delayed
-from sklearn.utils.validation import has_fit_parameter
+from sklearn.utils.parallel import Parallel, delayed
+from sklearn.utils.validation import has_fit_parameter, validate_data
 
 
 class FreqaiMultiOutputRegressor(MultiOutputRegressor):
-
     def fit(self, X, y, sample_weight=None, fit_params=None):
         """Fit the model to data, separately for each output variable.
         Parameters
@@ -33,26 +31,21 @@ class FreqaiMultiOutputRegressor(MultiOutputRegressor):
         if not hasattr(self.estimator, "fit"):
             raise ValueError("The base estimator should implement a fit method")
 
-        y = self._validate_data(X="no_validation", y=y, multi_output=True)
+        y = validate_data(self, X="no_validation", y=y, multi_output=True)
 
         if y.ndim == 1:
             raise ValueError(
-                "y must have at least two dimensions for "
-                "multi-output regression but has only one."
+                "y must have at least two dimensions for multi-output regression but has only one."
             )
 
-        if sample_weight is not None and not has_fit_parameter(
-            self.estimator, "sample_weight"
-        ):
+        if sample_weight is not None and not has_fit_parameter(self.estimator, "sample_weight"):
             raise ValueError("Underlying estimator does not support sample weights.")
 
         if not fit_params:
             fit_params = [None] * y.shape[1]
 
         self.estimators_ = Parallel(n_jobs=self.n_jobs)(
-            delayed(_fit_estimator)(
-                self.estimator, X, y[:, i], sample_weight, **fit_params[i]
-            )
+            delayed(_fit_estimator)(self.estimator, X, y[:, i], sample_weight, **fit_params[i])
             for i in range(y.shape[1])
         )
 
